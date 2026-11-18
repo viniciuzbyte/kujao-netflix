@@ -28,37 +28,49 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK
+      - name: Accept Android Licenses
         run: |
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          yes | sdkmanager --licenses
 
-      - name: Extract ZIP
+      - name: Install Android SDK Packages
+        run: |
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+      - name: Extract Project ZIP
         run: |
           mkdir -p extracted
 
-          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -n 1)
+          ZIP_FILE=$(find . -type f -iname "*.zip" \
+            -not -path "./.git/*" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP project tidak ditemukan!"
+            echo "ERROR: Project ZIP not found!"
             exit 1
           fi
 
-          echo "Extracting: $ZIP_FILE"
+          echo "Extracting $ZIP_FILE"
           unzip -q "$ZIP_FILE" -d extracted
 
-      - name: Find Gradle Project
+      - name: Locate Gradle Project
         run: |
-          PROJECT_DIR=$(find extracted -type f -name "settings.gradle.kts" -printf '%h\n' | head -n 1)
+          SETTINGS=$(find extracted -type f \
+            -name "settings.gradle.kts" | head -n 1)
 
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: settings.gradle.kts tidak ditemukan!"
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: settings.gradle.kts not found!"
+            find extracted -maxdepth 4 -type f
             exit 1
           fi
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
-          echo "Project ditemukan: $PROJECT_DIR"
+          PROJECT_DIR=$(dirname "$SETTINGS")
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Setup Gradle
+          echo "Found project: $PROJECT_DIR"
+
+      - name: Setup Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
@@ -66,7 +78,11 @@ jobs:
       - name: Build Debug APK
         run: |
           cd "$PROJECT_DIR"
-          gradle assembleDebug --no-daemon
+          gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Find APK
+        run: |
+          find extracted -type f -name "*.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
