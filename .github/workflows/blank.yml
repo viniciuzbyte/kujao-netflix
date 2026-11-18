@@ -12,14 +12,14 @@ permissions:
 
 jobs:
   build:
-    name: Extract and Build APK
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -27,34 +27,15 @@ jobs:
 
       - name: Locate Android SDK
         run: |
-          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          echo "ANDROID_HOME=${ANDROID_HOME:-$ANDROID_SDK_ROOT}" >> "$GITHUB_ENV"
 
-          if [ -z "$SDK_ROOT" ]; then
-            echo "Android SDK not found"
-            exit 1
-          fi
-
-          SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" \
-            -type f -name sdkmanager | sort -V | tail -n 1)
-
-          if [ -z "$SDKMANAGER" ]; then
-            echo "sdkmanager not found"
-            exit 1
-          fi
-
-          echo "SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
-
-          echo "Android SDK: $SDK_ROOT"
-          echo "SDK Manager: $SDKMANAGER"
-
-      - name: Accept Android SDK Licenses
+      - name: Accept SDK Licenses
         run: |
-          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses || true
+          yes | sdkmanager --licenses || true
 
-      - name: Install Android SDK
+      - name: Install SDK Packages
         run: |
-          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install \
+          sdkmanager \
             "platform-tools" \
             "platforms;android-34" \
             "build-tools;34.0.0"
@@ -63,35 +44,33 @@ jobs:
         run: |
           mkdir -p extracted
 
-          ZIP_FILE=$(find . -type f -iname "*.zip" \
+          ZIP=$(find . -maxdepth 2 -type f -iname "*.zip" \
             -not -path "./.git/*" | head -n 1)
 
-          if [ -z "$ZIP_FILE" ]; then
+          if [ -z "$ZIP" ]; then
             echo "Project ZIP not found!"
             exit 1
           fi
 
-          echo "Extracting: $ZIP_FILE"
-          unzip -q "$ZIP_FILE" -d extracted
+          unzip -q "$ZIP" -d extracted
+          echo "Extracted: $ZIP"
 
-      - name: Detect Gradle Project
+      - name: Detect Project Directory
         run: |
           SETTINGS=$(find extracted -type f \
             -name "settings.gradle.kts" | head -n 1)
 
           if [ -z "$SETTINGS" ]; then
             echo "Gradle project not found!"
-            find extracted -maxdepth 4 -type f
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$SETTINGS")
-
           echo "PROJECT_DIR=$GITHUB_WORKSPACE/$PROJECT_DIR" >> "$GITHUB_ENV"
 
           echo "Project: $PROJECT_DIR"
 
-      - name: Setup Gradle 8.9
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
@@ -99,11 +78,11 @@ jobs:
       - name: Build Debug APK
         run: |
           cd "$PROJECT_DIR"
-          gradle assembleDebug --no-daemon
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Verify APK
         run: |
-          APK=$(find "$PROJECT_DIR/app/build/outputs/apk" \
+          APK=$(find "$PROJECT_DIR/app/build/outputs/apk/debug" \
             -type f -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
@@ -111,7 +90,7 @@ jobs:
             exit 1
           fi
 
-          echo "APK successfully built: $APK"
+          echo "APK: $APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
